@@ -17,6 +17,7 @@ from .stt import SarvamSTTAdapter
 class CaseConfig(BaseModel):
     case_id: str
     source_url: HttpUrl | None = None
+    creator: str
     creator_authorised: bool = False
     source_language: str = "en-IN"
     target_language: str
@@ -119,6 +120,7 @@ def ingest(case_path: Path) -> Path:
     manifest = {
         "case_id": case.case_id,
         "source_url": str(case.source_url) if case.source_url else None,
+        "creator": case.creator,
         "creator_authorised": case.creator_authorised,
         "source_language": case.source_language,
         "target_language": case.target_language,
