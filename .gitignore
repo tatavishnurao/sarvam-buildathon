@@ -5,3 +5,10 @@ output/
 .env
 frontend/node_modules/
 frontend/dist/
+
+# Local creator-authorised media and generated ingestion artifacts
+/tests/ytshorts/**/source/*
+/tests/ytshorts/**/dubbed/*
+/tests/ytshorts/**/artifacts/
+!/tests/ytshorts/**/source/.gitkeep
+!/tests/ytshorts/**/dubbed/.gitkeep
