@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from contextlib import asynccontextmanager
 
 import uvicorn
 from fastapi import FastAPI
@@ -12,7 +13,14 @@ from backend.services.capabilities import capabilities
 from backend.services.dubbing import get_dubbing_provider
 
 
-app = FastAPI(title="DubPatch API", version="0.1.0")
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    """Validate configured providers before accepting requests."""
+    get_dubbing_provider()
+    yield
+
+
+app = FastAPI(title="DubPatch API", version="0.1.0", lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:5173"],
@@ -21,12 +29,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 app.include_router(jobs_router)
-
-
-@app.on_event("startup")
-def validate_dubbing_provider() -> None:
-    """Fail clearly when an unimplemented automatic provider is selected."""
-    get_dubbing_provider()
 
 
 @app.get("/health")
