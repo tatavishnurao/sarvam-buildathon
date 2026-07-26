@@ -1,4 +1,4 @@
-const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000';
+const API_BASE = import.meta.env.VITE_API_BASE_URL;
 
 /**
  * @typedef {Object} Job
@@ -13,6 +13,9 @@ const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000';
  */
 
 async function request(path, options = {}) {
+  if (!API_BASE) {
+    throw new Error('Backend unavailable');
+  }
   const response = await fetch(`${API_BASE}${path}`, options);
   const body = await response.json().catch(() => ({}));
   if (!response.ok) {

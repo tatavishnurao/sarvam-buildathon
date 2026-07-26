@@ -7,7 +7,7 @@ from unittest.mock import patch
 
 from fastapi.testclient import TestClient
 
-from backend.app import app
+from backend.app import app, cors_allowed_origins
 from backend.models.api import CreateJobRequest
 from backend.services.job_service import JobService, normalize_youtube_url
 
@@ -76,6 +76,31 @@ class BackendApiTests(unittest.TestCase):
         self.assertIn("od-IN", body["enabled_dubbing_target_languages"])
         self.assertFalse(body["automatic_dubbing_available"])
         self.assertEqual(body["dubbing_mode"], "manual_creator_studio")
+        self.assertTrue(body["enabled_dubbing_target_languages"])
+        self.assertEqual(
+            body["enabled_dubbing_target_languages"],
+            ["hi-IN", "te-IN", "ta-IN", "kn-IN", "bn-IN", "mr-IN", "gu-IN", "ml-IN", "pa-IN", "od-IN", "as-IN"],
+        )
+
+    def test_capabilities_cors_accepts_localhost_5174(self) -> None:
+        response = TestClient(app).get(
+            "/api/capabilities", headers={"Origin": "http://localhost:5174"}
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.headers["access-control-allow-origin"], "http://localhost:5174")
+
+    def test_cors_allowed_origins_is_configurable(self) -> None:
+        self.assertEqual(
+            cors_allowed_origins("http://localhost:6000, http://127.0.0.1:6001"),
+            ["http://localhost:6000", "http://127.0.0.1:6001"],
+        )
+        self.assertEqual(
+            cors_allowed_origins(),
+            [
+                "http://localhost:5173", "http://localhost:5174",
+                "http://127.0.0.1:5173", "http://127.0.0.1:5174",
+            ],
+        )
 
     def test_target_must_be_enabled(self) -> None:
         with tempfile.TemporaryDirectory() as raw_dir:

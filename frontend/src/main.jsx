@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import {
   ArrowRight, BadgeCheck, CircleAlert, FileAudio, FileText, Languages, Link2,
@@ -8,6 +8,7 @@ import {
   confirmSourceLanguage, createJob, getArtifacts, getCapabilities, getJob,
   getReport, runJob, saveCorrection, uploadDubbedArtifact, uploadJob,
 } from './api';
+import { canStartReview, enabledTargetLanguages, languageDisplayName, targetLanguageControlState } from './capabilities';
 import './styles.css';
 
 const terminal = new Set([
@@ -17,8 +18,7 @@ const terminal = new Set([
 
 function languageName(code) {
   if (code === 'auto') return 'Auto-detect';
-  try { return new Intl.DisplayNames(['en'], { type: 'language' }).of(code.split('-')[0]) || code; }
-  catch { return code; }
+  return languageDisplayName(code);
 }
 
 function Pill({ children, tone = 'neutral' }) {
@@ -43,6 +43,8 @@ function Transcript({ title, icon: Icon, transcript, empty }) {
 function App() {
   const [url, setUrl] = useState('https://youtube.com/shorts/hkvERAuoaI8');
   const [capabilities, setCapabilities] = useState(null);
+  const [capabilityStatus, setCapabilityStatus] = useState('loading');
+  const [capabilityError, setCapabilityError] = useState('');
   const [targetLanguage, setTargetLanguage] = useState('');
   const [sourceLanguage, setSourceLanguage] = useState('auto');
   const [expectedSpeakers, setExpectedSpeakers] = useState('');
@@ -56,12 +58,21 @@ function App() {
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
 
-  useEffect(() => {
-    getCapabilities().then((value) => {
+  async function loadCapabilities() {
+    setCapabilityStatus('loading');
+    setCapabilityError('');
+    try {
+      const value = await getCapabilities();
       setCapabilities(value);
-      setTargetLanguage((current) => current || value.enabled_dubbing_target_languages[0] || '');
-    }).catch((reason) => setError(reason.message));
-  }, []);
+      setCapabilityStatus('ready');
+    } catch {
+      setCapabilities(null);
+      setCapabilityStatus('error');
+      setCapabilityError('Backend unavailable');
+    }
+  }
+
+  useEffect(() => { loadCapabilities(); }, []);
 
   async function refreshArtifacts(jobId, includeReport = false) {
     const artifactResponse = await getArtifacts(jobId);
@@ -90,7 +101,14 @@ function App() {
     return () => window.clearInterval(timer);
   }, [job?.job_id, job?.status]);
 
-  const canStart = Boolean(capabilities && authorised && targetLanguage && (sourceFile || url.trim()));
+  const targetOptions = enabledTargetLanguages(capabilities);
+  const targetControl = targetLanguageControlState(capabilityStatus, targetOptions, targetLanguage);
+  const canStart = canStartReview({
+    capabilityStatus,
+    authorised,
+    targetLanguage,
+    hasSource: Boolean(sourceFile || url.trim()),
+  });
   const activeStep = job?.status || 'created';
   const sourceTranscript = report?.source_transcript || artifacts['source_transcript.normalized.json'];
   const targetTranscript = report?.target_transcript || artifacts['target_transcript.normalized.json'];
@@ -138,7 +156,6 @@ function App() {
   }
 
   const sourceOptions = capabilities?.source_stt_languages || [];
-  const targetOptions = capabilities?.enabled_dubbing_target_languages || [];
   return (
     <main>
       <nav className="nav shell"><div className="brand"><div className="brand-mark">D</div><span>DubPatch</span></div><div className="nav-copy">Evidence-first review for Indic-dubbed short-form video</div><Pill tone="beta">Local reviewer</Pill></nav>
@@ -153,10 +170,11 @@ function App() {
           <div className="upload-grid single-source"><label><Upload size={16} /><span>Source MP4</span><input type="file" accept="video/mp4" onChange={(event) => setSourceFile(event.target.files?.[0] || null)} /><small>{sourceFile?.name || 'Creator-authorised local source video'}</small></label></div>
           <div className="language-grid">
             <label>Source language<select value={sourceLanguage} onChange={(event) => setSourceLanguage(event.target.value)}><option value="auto">Auto-detect</option>{sourceOptions.map((code) => <option value={code} key={code}>{languageName(code)} · {code}</option>)}</select></label>
-            <label>Target language<select value={targetLanguage} onChange={(event) => setTargetLanguage(event.target.value)}>{targetOptions.map((code) => <option value={code} key={code}>{languageName(code)} · {code}</option>)}</select></label>
+            <label>Target language<select value={targetLanguage} disabled={targetControl.disabled} onChange={(event) => setTargetLanguage(event.target.value)}>{targetControl.label && <option value="">{targetControl.label}</option>}{targetOptions.map(({ code, name }) => <option value={code} key={code}>{name} · {code}</option>)}</select>{capabilityStatus === 'error' && <button className="text-button retry-button" type="button" onClick={loadCapabilities}>Retry</button>}</label>
             <label>Expected speakers<select value={expectedSpeakers} onChange={(event) => setExpectedSpeakers(event.target.value)}><option value="">Auto</option>{[1, 2, 3, 4, 5, 6].map((value) => <option value={value} key={value}>{value}</option>)}</select></label>
           </div>
           <label className="authorisation"><input type="checkbox" checked={authorised} onChange={(event) => setAuthorised(event.target.checked)} />I own this content or have explicit permission to process it.</label>
+          {capabilityError && <div className="input-error">{capabilityError}</div>}
           {error && <div className="input-error">{error}</div>}
         </div>
       </section>

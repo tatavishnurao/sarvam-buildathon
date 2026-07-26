@@ -57,6 +57,7 @@ h1 { font-family: Manrope; font-size: clamp(48px, 7vw, 86px); line-height: .98; 
 .language-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:10px; padding:0 9px 10px; }
 .language-grid label { display:grid; gap:6px; color:var(--muted); font-size:12px; }
 .language-grid select { color:#e8ebef; background:#171b23; border:1px solid var(--border); border-radius:9px; padding:10px; }
+.retry-button { width:fit-content; padding:0; color:var(--lime); font-size:12px; font-weight:700; }
 .muted { color:var(--muted) !important; }
 .pipeline,.workspace,.review { padding: 72px 0; border-top: 1px solid var(--border); }
 .section-heading { display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 34px; }
