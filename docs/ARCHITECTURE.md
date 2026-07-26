@@ -1,6 +1,6 @@
 # Architecture
 
-`Shorts Fidelity Judge` is a local, evidence-first pipeline for deciding whether
+`DubPatch` is a local, evidence-first pipeline for deciding whether
 a Sarvam-dubbed automotive short is **preserved**, **review_required**, or
 **unable_to_verify**. It deliberately does not calculate a universal accuracy
 score and cannot certify a dub without reviewer judgement.

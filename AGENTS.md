@@ -1,4 +1,4 @@
-# Shorts Fidelity Judge contributor guide
+# DubPatch contributor guide
 
 ## Scope
 

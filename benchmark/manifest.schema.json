@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "Shorts Fidelity Judge manifest",
+  "title": "DubPatch manifest",
   "type": "object",
   "additionalProperties": false,
   "required": ["video_id", "creator", "source_url", "target_language", "source_transcript"],

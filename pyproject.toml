@@ -1,7 +1,7 @@
 [project]
-name = "shorts-fidelity-judge"
+name = "dubpatch"
 version = "0.1.0"
-description = "Evidence-first review pipeline for dubbed automotive shorts"
+description = "Evidence-first review and patch pipeline for dubbed automotive shorts"
 requires-python = ">=3.11"
 dependencies = [
   "pydantic>=2.0",
@@ -15,8 +15,8 @@ dependencies = [
 ]
 
 [project.scripts]
-shorts-fidelity-judge = "shorts_fidelity_judge.cli:main"
-shorts-fidelity-judge-review = "shorts_fidelity_judge.review_ui:main"
+dubpatch = "shorts_fidelity_judge.cli:main"
+dubpatch-review = "shorts_fidelity_judge.review_ui:main"
 dubpatch-ingest = "shorts_fidelity_judge.ingest:main"
 dubpatch-api = "backend.app:main"
 
