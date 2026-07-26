@@ -1,15 +1,25 @@
+# Python
 __pycache__/
 *.py[cod]
+*.egg-info/
 .pytest_cache/
-output/
-.env
+.venv/
+venv/
 sarvamgg/
+
+# Secrets
+.env
+.env.*
+!.env.example
+
+# Generated outputs
+output/
+tests/ytshorts/*/artifacts/
+
+# Locally supplied media
+tests/ytshorts/*/source/
+tests/ytshorts/*/dubbed/
+
+# Frontend
 frontend/node_modules/
 frontend/dist/
-
-# Local creator-authorised media and generated ingestion artifacts
-/tests/ytshorts/**/source/*
-/tests/ytshorts/**/dubbed/*
-/tests/ytshorts/**/artifacts/
-!/tests/ytshorts/**/source/.gitkeep
-!/tests/ytshorts/**/dubbed/.gitkeep

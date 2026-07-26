@@ -3,7 +3,13 @@ name = "shorts-fidelity-judge"
 version = "0.1.0"
 description = "Evidence-first review pipeline for dubbed automotive shorts"
 requires-python = ">=3.11"
-dependencies = ["pydantic>=2.0", "PyYAML>=6.0", "requests>=2.28", "sarvamai"]
+dependencies = [
+  "pydantic>=2.0",
+  "PyYAML>=6.0",
+  "requests>=2.28",
+  "python-dotenv>=1.0",
+  "sarvamai"
+]
 
 [project.scripts]
 shorts-fidelity-judge = "shorts_fidelity_judge.cli:main"
