@@ -9,3 +9,7 @@ dependencies = ["pydantic>=2.0", "PyYAML>=6.0", "requests>=2.28", "sarvamai"]
 shorts-fidelity-judge = "shorts_fidelity_judge.cli:main"
 shorts-fidelity-judge-review = "shorts_fidelity_judge.review_ui:main"
 dubpatch-ingest = "shorts_fidelity_judge.ingest:main"
+
+[tool.setuptools.packages.find]
+include = ["shorts_fidelity_judge*"]
+exclude = ["frontend*", "output*", "tests*", "sarvamgg*"]
