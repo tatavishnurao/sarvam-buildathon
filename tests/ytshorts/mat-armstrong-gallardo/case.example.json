@@ -1,0 +1,15 @@
+{
+  "case_id": "mat-armstrong-gallardo",
+  "source_url": "https://youtube.com/shorts/hkvERAuoaI8",
+  "creator_authorised": false,
+  "source_language": "en-IN",
+  "target_language": "te-IN",
+  "expected_speakers": 2,
+  "source_video": "source/source.mp4",
+  "dubbed_audio": "dubbed/te-IN.wav",
+  "metadata": {
+    "creator": "Mat Armstrong Shorts",
+    "title": "A sad story — Stradman Lamborghini",
+    "purpose": "private fidelity smoke test"
+  }
+}
