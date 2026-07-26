@@ -36,7 +36,15 @@ class PipelineTests(unittest.TestCase):
             audio.write_bytes(b"local-only-test-audio")
             cache = root / "cache"; cache.mkdir()
             digest = hashlib.sha256(audio.read_bytes()).hexdigest()
-            (cache / f"{digest}.json").write_text(json.dumps({"transcript": "cached result", "language_code": "te-IN"}))
+            cache_key = hashlib.sha256(json.dumps({
+                "audio_sha256": digest,
+                "language_code": "te-IN",
+                "model": "saaras:v3",
+                "mode": "transcribe",
+                "with_diarization": True,
+                "num_speakers": None,
+            }, sort_keys=True).encode("utf-8")).hexdigest()
+            (cache / f"{cache_key}.json").write_text(json.dumps({"transcript": "cached result", "language_code": "te-IN"}))
             transcript = SarvamSTTAdapter(cache).transcribe(audio, "te-IN")
             self.assertEqual(transcript.transcript, "cached result")
             self.assertEqual(transcript.provenance, "sarvam_stt")

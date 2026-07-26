@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import audioop
 import json
 import logging
 import math
@@ -20,11 +19,11 @@ def inspect_wav(path: Path, pause_threshold_seconds: float = 0.6) -> dict[str, A
     with wave.open(str(path), "rb") as handle:
         channels, width, rate, frames = handle.getnchannels(), handle.getsampwidth(), handle.getframerate(), handle.getnframes()
         raw = handle.readframes(frames)
-    mono = audioop.tomono(raw, width, 0.5, 0.5) if channels == 2 else raw
-    peak = audioop.max(mono, width)
+    mono = _mono_pcm_samples(raw, width, channels)
+    peak = max((abs(sample) for sample in mono), default=0)
     full_scale = float((1 << (width * 8 - 1)) - 1)
-    rms = audioop.rms(mono, width)
-    pauses = _detect_pauses(mono, width, rate, pause_threshold_seconds)
+    rms = _rms(mono)
+    pauses = _detect_pauses(mono, rate, pause_threshold_seconds)
     result: dict[str, Any] = {
         "available": True, "path": str(path), "channels": channels, "sample_width_bytes": width,
         "sample_rate_hz": rate, "frames": frames, "duration_seconds": frames / rate,
@@ -44,22 +43,47 @@ def _dbfs(value: int, full_scale: float) -> float | None:
     return round(20 * math.log10(value / full_scale), 2) if value else None
 
 
-def _detect_pauses(raw: bytes, width: int, rate: int, minimum: float) -> list[dict[str, float]]:
+def _mono_pcm_samples(raw: bytes, width: int, channels: int) -> list[int]:
+    """Decode uncompressed WAV PCM without ``audioop`` (removed in Python 3.13)."""
+    if width not in (1, 2, 3, 4):
+        raise ValueError(f"Unsupported PCM sample width: {width} bytes")
+    frame_size = width * channels
+    samples: list[int] = []
+    for frame_offset in range(0, len(raw) - frame_size + 1, frame_size):
+        channels_in_frame: list[int] = []
+        for channel in range(channels):
+            offset = frame_offset + channel * width
+            data = raw[offset:offset + width]
+            if width == 1:
+                channels_in_frame.append(data[0] - 128)  # WAV 8-bit PCM is unsigned.
+            elif width == 3:
+                value = int.from_bytes(data, byteorder="little", signed=False)
+                channels_in_frame.append(value - (1 << 24) if value & (1 << 23) else value)
+            else:
+                channels_in_frame.append(int.from_bytes(data, byteorder="little", signed=True))
+        samples.append(round(sum(channels_in_frame) / channels))
+    return samples
+
+
+def _rms(samples: list[int]) -> int:
+    return round(math.sqrt(sum(sample * sample for sample in samples) / len(samples))) if samples else 0
+
+
+def _detect_pauses(samples: list[int], rate: int, minimum: float) -> list[dict[str, float]]:
     chunk_frames = max(1, rate // 20)  # 50 ms
-    chunk_bytes = chunk_frames * width
-    threshold = (1 << (width * 8 - 1)) * 0.01  # -40 dBFS amplitude
+    threshold = max(abs(sample) for sample in samples) * 0.01 if samples else 0
     runs: list[dict[str, float]] = []
     start: float | None = None
-    for offset in range(0, len(raw), chunk_bytes):
-        silent = audioop.rms(raw[offset:offset + chunk_bytes], width) <= threshold
-        time = offset / (width * rate)
+    for offset in range(0, len(samples), chunk_frames):
+        silent = _rms(samples[offset:offset + chunk_frames]) <= threshold
+        time = offset / rate
         if silent and start is None:
             start = time
         if not silent and start is not None:
             if time - start >= minimum:
                 runs.append({"start_seconds": round(start, 3), "end_seconds": round(time, 3), "duration_seconds": round(time - start, 3)})
             start = None
-    end = len(raw) / (width * rate)
+    end = len(samples) / rate
     if start is not None and end - start >= minimum:
         runs.append({"start_seconds": round(start, 3), "end_seconds": round(end, 3), "duration_seconds": round(end - start, 3)})
     return runs
