@@ -19,6 +19,8 @@ from uuid import uuid4
 from fastapi import UploadFile
 
 from backend.models.api import CreateJobRequest, JobResponse
+from backend.services.capabilities import capabilities
+from backend.services.dubbing import DubbingRequest, get_dubbing_provider
 from backend.services.semantic_judge import SarvamSemanticJudge
 from shorts_fidelity_judge.audio import inspect_wav
 from shorts_fidelity_judge.config import REPOSITORY_ROOT
@@ -31,6 +33,10 @@ JOBS_ROOT = RUNTIME_ROOT / "jobs"
 
 PROTECTED_ENTITIES = ("Lamborghini Gallardo", "Stradman")
 AUTOMOTIVE_TERMS = ("twin-turbo", "rear-wheel drive", "four-wheel drive")
+MAX_UPLOAD_BYTES = 500 * 1024 * 1024
+SOURCE_LANGUAGE_CONFIDENCE_THRESHOLD = float(
+    os.getenv("SOURCE_LANGUAGE_CONFIDENCE_THRESHOLD", "0.70")
+)
 
 
 def _now() -> str:
@@ -75,6 +81,13 @@ class JobService:
     def create_job(self, request: CreateJobRequest) -> JobResponse:
         if not request.creator_authorised:
             raise ValueError("Creator authorisation must be confirmed")
+        capability = capabilities()
+        if request.target_language not in capability.enabled_dubbing_target_languages:
+            raise ValueError("Target language is not enabled for the selected dubbing mode")
+        if request.source_language != "auto" and request.source_language not in capability.source_stt_languages:
+            raise ValueError("Source language is not supported for transcription")
+        if request.source_language == request.target_language:
+            raise ValueError("Source and target languages must be different")
         source_url = None
         video_id = None
         if request.source_url:
@@ -94,12 +107,19 @@ class JobService:
             ),
             "target_language": request.target_language,
             "source_language": request.source_language,
+            "detected_source_language": None,
+            "source_language_confidence": None,
             "expected_speakers": request.expected_speakers,
             "creator_authorised": True,
             "source_url": source_url,
             "youtube_video_id": video_id,
             "has_source": False,
             "has_target": False,
+            "dubbing": {
+                "provider": capabilities().dubbing_provider,
+                "status": "not_started",
+                "instructions": None,
+            },
             "error": None,
             "created_at": _now(),
             "updated_at": _now(),
@@ -112,7 +132,6 @@ class JobService:
         job_id: str,
         *,
         source_file: UploadFile | None,
-        target_file: UploadFile | None,
     ) -> JobResponse:
         state = self.get_state(job_id)
         job_dir = self.jobs_root / job_id
@@ -121,29 +140,43 @@ class JobService:
                 raise ValueError("Source upload must be an MP4 file")
             await self._save_file(source_file, job_dir / "inputs" / "source.mp4")
             state["has_source"] = True
-        if target_file is not None:
-            suffix = Path(target_file.filename or "").suffix.casefold()
-            if suffix not in {".wav", ".mp4"}:
-                raise ValueError("Target upload must be WAV or MP4")
-            await self._save_file(
-                target_file, job_dir / "inputs" / f"target{suffix}"
-            )
-            state["has_target"] = True
-        state["status"] = (
-            "created" if state["has_source"] else "awaiting_source"
+        state["status"] = "created" if state["has_source"] else "awaiting_source"
+        state["message"] = "Source ready for language detection" if state["has_source"] else "Upload a source MP4"
+        self._store_state(state)
+        return JobResponse.model_validate(state)
+
+    async def save_dubbed_artifact(self, job_id: str, target_file: UploadFile) -> JobResponse:
+        state = self.get_state(job_id)
+        if state["status"] != "awaiting_dubbing":
+            raise ValueError("A dubbed artifact can only be uploaded while awaiting_dubbing")
+        suffix = Path(target_file.filename or "").suffix.casefold()
+        if suffix not in {".wav", ".mp4"}:
+            raise ValueError("Dubbed artifact must be WAV or MP4")
+        await self._save_file(target_file, self.jobs_root / job_id / "inputs" / f"target{suffix}")
+        state.update(
+            has_target=True,
+            status="queued",
+            progress=45,
+            message="Dubbed artifact uploaded; resuming review",
+            error=None,
         )
-        if state["has_source"] and not state["has_target"]:
-            state["status"] = "awaiting_dubbed_artifact"
-            state["message"] = "Source ready; upload a dubbed WAV or MP4"
-        elif state["has_source"] and state["has_target"]:
-            state["message"] = "Source and dubbed artifact are ready"
+        state["dubbing"] = {
+            **state.get("dubbing", {}),
+            "status": "artifact_uploaded",
+        }
         self._store_state(state)
         return JobResponse.model_validate(state)
 
     async def _save_file(self, upload: UploadFile, path: Path) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
         with path.open("wb") as output:
+            written = 0
             while chunk := await upload.read(1024 * 1024):
+                written += len(chunk)
+                if written > MAX_UPLOAD_BYTES:
+                    output.close()
+                    path.unlink(missing_ok=True)
+                    raise ValueError("Uploaded file exceeds the 500 MB limit")
                 output.write(chunk)
         await upload.close()
         if path.stat().st_size == 0:
@@ -163,6 +196,25 @@ class JobService:
         state = self.get_state(job_id)
         state.update(status=status, progress=progress, message=message, error=None)
         self._store_state(state)
+
+    def confirm_source_language(self, job_id: str, language_code: str) -> JobResponse:
+        state = self.get_state(job_id)
+        if state["status"] != "source_language_confirmation_required":
+            raise ValueError("Source language confirmation is not required for this job")
+        if language_code not in capabilities().source_stt_languages:
+            raise ValueError("Source language is not supported for transcription")
+        if language_code == state["target_language"]:
+            raise ValueError("Source and target languages must be different")
+        state.update(
+            source_language=language_code,
+            detected_source_language=language_code,
+            status="queued",
+            progress=30,
+            message="Source language confirmed; continuing to dubbing",
+            error=None,
+        )
+        self._store_state(state)
+        return JobResponse.model_validate(state)
 
     def run_job(self, job_id: str) -> None:
         with self._guard:
@@ -188,31 +240,41 @@ class JobService:
         state = self.get_state(job_id)
         if not state["has_source"]:
             raise ValueError("Upload a source MP4 before running the job")
-        if not state["has_target"]:
-            state.update(
-                status="awaiting_dubbed_artifact",
-                message="Upload a Sarvam-dubbed WAV or MP4 before running",
-            )
-            self._store_state(state)
-            return
         job_dir = self.jobs_root / job_id
         artifacts = job_dir / "artifacts"
         artifacts.mkdir(exist_ok=True)
         self._update(job_id, "extracting_audio", 10, "Extracting source audio")
         source_audio = artifacts / "source_audio.wav"
-        target_audio = artifacts / "target_audio.wav"
         self._extract_audio(job_dir / "inputs" / "source.mp4", source_audio)
-        target_input = next((job_dir / "inputs").glob("target.*"))
-        self._extract_audio(target_input, target_audio)
 
         cache = artifacts / "raw" / "sarvam-stt"
         adapter = SarvamSTTAdapter(cache)
-        self._update(job_id, "transcribing_source", 25, "Transcribing English source")
+        self._update(job_id, "transcribing_source", 25, "Detecting language and transcribing source")
+        requested_source_language = state["source_language"]
         source = adapter.transcribe(
             source_audio,
-            state["source_language"],
+            "unknown" if requested_source_language == "auto" else requested_source_language,
             with_diarization=True,
             num_speakers=state["expected_speakers"],
+        )
+        detected_language, confidence = self._detected_language(source.raw_response or {})
+        effective_source_language = (
+            detected_language if requested_source_language == "auto" else requested_source_language
+        )
+        state = self.get_state(job_id)
+        state.update(
+            detected_source_language=detected_language,
+            source_language_confidence=confidence,
+        )
+        _write_json(
+            artifacts / "source_language_detection.json",
+            {
+                "requested_language": requested_source_language,
+                "detected_language": detected_language,
+                "confidence": confidence,
+                "threshold": SOURCE_LANGUAGE_CONFIDENCE_THRESHOLD,
+                "detector": "sarvam_saaras_v3_batch_stt_metadata",
+            },
         )
         _write_json(
             artifacts / "source_transcript.raw.json", source.raw_response or {}
@@ -220,9 +282,53 @@ class JobService:
         self._write_normalized(
             artifacts / "source_transcript.normalized.json",
             source,
-            state["source_language"],
+            effective_source_language or "unknown",
             "source",
         )
+        if requested_source_language == "auto" and (
+            not detected_language
+            or confidence is None
+            or confidence < SOURCE_LANGUAGE_CONFIDENCE_THRESHOLD
+        ):
+            state.update(
+                status="source_language_confirmation_required",
+                progress=30,
+                message="Confirm the detected source language before dubbing",
+            )
+            self._store_state(state)
+            return
+        if effective_source_language == state["target_language"]:
+            raise ValueError("Detected source and target languages must be different")
+        state["source_language"] = effective_source_language
+        self._store_state(state)
+        if not state["has_target"]:
+            provider = get_dubbing_provider()
+            handoff = provider.create_dub(
+                DubbingRequest(
+                    job_id=job_id,
+                    source_video=job_dir / "inputs" / "source.mp4",
+                    source_language=effective_source_language,
+                    target_language=state["target_language"],
+                )
+            )
+            state.update(
+                status=handoff["status"], progress=40, message=handoff["message"]
+            )
+            state["dubbing"] = {
+                "provider": provider.name,
+                "status": handoff["status"],
+                "source_language": effective_source_language,
+                "target_language": state["target_language"],
+                "instructions": handoff["message"],
+            }
+            self._store_state(state)
+            return
+
+        target_audio = artifacts / "target_audio.wav"
+        target_input = next((job_dir / "inputs").glob("target.*"), None)
+        if target_input is None:
+            raise ValueError("Dubbed artifact is missing")
+        self._extract_audio(target_input, target_audio)
         self._update(job_id, "transcribing_target", 45, "Transcribing dubbed audio")
         target = adapter.transcribe(
             target_audio,
@@ -292,7 +398,7 @@ class JobService:
             "status": "review_required" if any(not f["preserved"] for f in findings) else "preserved",
             "source_audio": inspect_wav(source_audio),
             "target_audio": inspect_wav(target_audio),
-            "source_transcript": self._transcript_dict(source, state["source_language"], "source"),
+            "source_transcript": self._transcript_dict(source, effective_source_language, "source"),
             "target_transcript": self._transcript_dict(target, state["target_language"], "target"),
             "target_back_translation": back_translation,
             "alignments": alignments,
@@ -340,6 +446,36 @@ class JobService:
                 for index, segment in enumerate(transcript.segments, start=1)
             ],
         }
+
+    @staticmethod
+    def _detected_language(raw: dict[str, Any]) -> tuple[str | None, float | None]:
+        """Read only provider audio-LID metadata; never infer language from text."""
+        candidates: list[dict[str, Any]] = [raw]
+        for key in ("metadata", "language_detection", "language", "result"):
+            value = raw.get(key)
+            if isinstance(value, dict):
+                candidates.append(value)
+        for candidate in candidates:
+            code = (
+                candidate.get("detected_language_code")
+                or candidate.get("language_code")
+                or candidate.get("detected_language")
+            )
+            confidence = next(
+                (
+                    candidate[key]
+                    for key in ("language_probability", "language_confidence", "confidence")
+                    if key in candidate
+                ),
+                None,
+            )
+            if isinstance(code, str) and code and code != "unknown":
+                try:
+                    numeric_confidence = float(confidence) if confidence is not None else None
+                except (TypeError, ValueError):
+                    numeric_confidence = None
+                return code, numeric_confidence
+        return None, None
 
     def _write_normalized(
         self,
@@ -656,6 +792,7 @@ class JobService:
         if not artifacts.exists():
             return result
         for name in (
+            "source_language_detection.json",
             "source_transcript.normalized.json",
             "target_transcript.normalized.json",
             "target_back_translation.json",

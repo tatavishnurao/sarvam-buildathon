@@ -29,17 +29,31 @@ export function createJob(payload) {
   });
 }
 
-export function uploadJob({ jobId, sourceFile, targetFile, targetLanguage, creatorAuthorised }) {
+export function uploadJob({ jobId, sourceFile, targetLanguage, sourceLanguage, expectedSpeakers, creatorAuthorised }) {
   const form = new FormData();
   if (jobId) form.append('job_id', jobId);
   if (sourceFile) form.append('source_file', sourceFile);
-  if (targetFile) form.append('target_file', targetFile);
   form.append('creator_authorised', String(creatorAuthorised));
   form.append('target_language', targetLanguage);
-  form.append('source_language', 'en-IN');
-  form.append('expected_speakers', '2');
+  form.append('source_language', sourceLanguage);
+  if (expectedSpeakers) form.append('expected_speakers', String(expectedSpeakers));
   return request('/api/jobs/upload', { method: 'POST', body: form });
 }
+
+export function uploadDubbedArtifact(jobId, targetFile) {
+  const form = new FormData();
+  form.append('target_file', targetFile);
+  return request(`/api/jobs/${jobId}/dubbed-artifact`, { method: 'POST', body: form });
+}
+
+export function confirmSourceLanguage(jobId, sourceLanguage) {
+  return request(`/api/jobs/${jobId}/source-language`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ source_language: sourceLanguage }),
+  });
+}
+
+export function getCapabilities() { return request('/api/capabilities'); }
 
 export function runJob(jobId) {
   return request(`/api/jobs/${jobId}/run`, { method: 'POST' });

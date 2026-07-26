@@ -8,7 +8,8 @@ from pydantic import BaseModel, Field, HttpUrl
 JobStatus = Literal[
     "created",
     "awaiting_source",
-    "awaiting_dubbed_artifact",
+    "source_language_confirmation_required",
+    "awaiting_dubbing",
     "queued",
     "extracting_audio",
     "transcribing_source",
@@ -23,9 +24,9 @@ JobStatus = Literal[
 class CreateJobRequest(BaseModel):
     source_url: HttpUrl | None = None
     creator_authorised: bool
-    target_language: str = "te-IN"
-    source_language: str = "en-IN"
-    expected_speakers: int | None = Field(default=2, ge=1, le=20)
+    target_language: str
+    source_language: str = "auto"
+    expected_speakers: int | None = Field(default=None, ge=1, le=20)
 
 
 class JobResponse(BaseModel):
@@ -35,6 +36,8 @@ class JobResponse(BaseModel):
     message: str
     target_language: str
     source_language: str
+    detected_source_language: str | None = None
+    source_language_confidence: float | None = None
     has_source: bool
     has_target: bool
     error: str | None = None
@@ -52,3 +55,17 @@ class CorrectionRequest(BaseModel):
 class ArtifactResponse(BaseModel):
     job_id: str
     artifacts: dict[str, object]
+
+
+class SourceLanguageConfirmationRequest(BaseModel):
+    source_language: str
+
+
+class CapabilityResponse(BaseModel):
+    source_stt_languages: list[str]
+    translation_languages: list[str]
+    tts_languages: list[str]
+    enabled_dubbing_target_languages: list[str]
+    automatic_dubbing_available: bool
+    dubbing_provider: str
+    dubbing_mode: str

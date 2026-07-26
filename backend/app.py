@@ -7,6 +7,9 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from backend.routes.jobs import router as jobs_router
+from backend.models.api import CapabilityResponse
+from backend.services.capabilities import capabilities
+from backend.services.dubbing import get_dubbing_provider
 
 
 app = FastAPI(title="DubPatch API", version="0.1.0")
@@ -20,9 +23,20 @@ app.add_middleware(
 app.include_router(jobs_router)
 
 
+@app.on_event("startup")
+def validate_dubbing_provider() -> None:
+    """Fail clearly when an unimplemented automatic provider is selected."""
+    get_dubbing_provider()
+
+
 @app.get("/health")
 def health() -> dict[str, str]:
     return {"status": "ok"}
+
+
+@app.get("/api/capabilities", response_model=CapabilityResponse)
+def get_capabilities() -> CapabilityResponse:
+    return capabilities()
 
 
 def main() -> None:

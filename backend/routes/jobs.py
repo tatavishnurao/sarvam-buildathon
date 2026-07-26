@@ -17,6 +17,7 @@ from backend.models.api import (
     CorrectionRequest,
     CreateJobRequest,
     JobResponse,
+    SourceLanguageConfirmationRequest,
 )
 from backend.services.job_service import JobService
 
@@ -39,12 +40,11 @@ def create_job(request: CreateJobRequest) -> JobResponse:
 @router.post("/upload", response_model=JobResponse)
 async def upload(
     creator_authorised: Annotated[bool, Form()],
-    target_language: Annotated[str, Form()] = "te-IN",
-    source_language: Annotated[str, Form()] = "en-IN",
-    expected_speakers: Annotated[int, Form()] = 2,
+    target_language: Annotated[str, Form()],
+    source_language: Annotated[str, Form()] = "auto",
+    expected_speakers: Annotated[int | None, Form()] = None,
     job_id: Annotated[str | None, Form()] = None,
     source_file: Annotated[UploadFile | None, File()] = None,
-    target_file: Annotated[UploadFile | None, File()] = None,
 ) -> JobResponse:
     try:
         if not creator_authorised:
@@ -60,8 +60,40 @@ async def upload(
             )
             job_id = created.job_id
         return await service.save_upload(
-            job_id, source_file=source_file, target_file=target_file
+            job_id, source_file=source_file
         )
+    except FileNotFoundError as exc:
+        raise _not_found(exc) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@router.post("/{job_id}/dubbed-artifact", response_model=JobResponse)
+async def upload_dubbed_artifact(
+    job_id: str,
+    background_tasks: BackgroundTasks,
+    target_file: Annotated[UploadFile, File()],
+) -> JobResponse:
+    try:
+        response = await service.save_dubbed_artifact(job_id, target_file)
+        background_tasks.add_task(service.run_job, job_id)
+        return response
+    except FileNotFoundError as exc:
+        raise _not_found(exc) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@router.post("/{job_id}/source-language", response_model=JobResponse)
+def confirm_source_language(
+    job_id: str,
+    request: SourceLanguageConfirmationRequest,
+    background_tasks: BackgroundTasks,
+) -> JobResponse:
+    try:
+        response = service.confirm_source_language(job_id, request.source_language)
+        background_tasks.add_task(service.run_job, job_id)
+        return response
     except FileNotFoundError as exc:
         raise _not_found(exc) from exc
     except ValueError as exc:
@@ -72,7 +104,7 @@ async def upload(
 def run_job(job_id: str, background_tasks: BackgroundTasks) -> JobResponse:
     try:
         state = service.get_state(job_id)
-        if state["status"] not in {"created", "awaiting_dubbed_artifact", "failed", "complete"}:
+        if state["status"] not in {"created", "failed", "complete"}:
             return JobResponse.model_validate(state)
         state.update(status="queued", progress=1, message="Review queued", error=None)
         service._store_state(state)

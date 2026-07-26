@@ -18,7 +18,7 @@ class _FakeSTT:
         pass
 
     def transcribe(self, _audio: Path, language: str, mode: str = "transcribe", **_kwargs):
-        if language == "en-IN":
+        if language in {"en-IN", "unknown"} and mode == "transcribe":
             values = [
                 ("I built a Lamborghini Gallardo.", 0, 2),
                 ("Stradman does.", 2, 3),
@@ -53,11 +53,16 @@ class _FakeSTT:
             )
             for index, (text, start, end) in enumerate(values, 1)
         ]
+        metadata = {"transcript": "provider response"}
+        if language == "unknown":
+            metadata["metadata"] = {
+                "detected_language_code": "en-IN", "language_probability": 0.94
+            }
         return TargetTranscript(
             transcript=" ".join(item.text for item in segments),
             segments=segments,
             provenance="sarvam_stt",
-            raw_response={"transcript": "provider response"},
+            raw_response=metadata,
         )
 
 
@@ -145,6 +150,47 @@ class JobServiceTests(unittest.TestCase):
                 if item["category"] == "unsupported_addition"
             ]
             self.assertEqual(len(unsupported), 1)
+
+    def test_auto_detected_source_reaches_manual_dubbing_handoff(self) -> None:
+        with tempfile.TemporaryDirectory() as raw_dir:
+            service = JobService(Path(raw_dir) / "jobs")
+            job = service.create_job(CreateJobRequest(creator_authorised=True, target_language="te-IN"))
+            job_dir = service.jobs_root / job.job_id
+            (job_dir / "inputs" / "source.mp4").write_bytes(b"source")
+            state = service.get_state(job.job_id)
+            state["has_source"] = True
+            service._store_state(state)
+
+            with patch("backend.services.job_service.SarvamSTTAdapter", _FakeSTT), patch.object(JobService, "_extract_audio", side_effect=lambda _source, target: _write_silence(target)):
+                service.run_job(job.job_id)
+
+            paused = service.get_state(job.job_id)
+            self.assertEqual(paused["status"], "awaiting_dubbing")
+            self.assertEqual(paused["detected_source_language"], "en-IN")
+            self.assertEqual(paused["source_language"], "en-IN")
+            detection = (job_dir / "artifacts" / "source_language_detection.json").read_text()
+            self.assertIn("sarvam_saaras_v3_batch_stt_metadata", detection)
+
+    def test_low_confidence_detection_requires_confirmation(self) -> None:
+        class LowConfidenceSTT(_FakeSTT):
+            def transcribe(self, *args, **kwargs):
+                transcript = super().transcribe(*args, **kwargs)
+                transcript.raw_response = {
+                    "metadata": {"detected_language_code": "hi-IN", "language_probability": 0.2}
+                }
+                return transcript
+
+        with tempfile.TemporaryDirectory() as raw_dir:
+            service = JobService(Path(raw_dir) / "jobs")
+            job = service.create_job(CreateJobRequest(creator_authorised=True, target_language="te-IN"))
+            job_dir = service.jobs_root / job.job_id
+            (job_dir / "inputs" / "source.mp4").write_bytes(b"source")
+            state = service.get_state(job.job_id)
+            state["has_source"] = True
+            service._store_state(state)
+            with patch("backend.services.job_service.SarvamSTTAdapter", LowConfidenceSTT), patch.object(JobService, "_extract_audio", side_effect=lambda _source, target: _write_silence(target)):
+                service.run_job(job.job_id)
+            self.assertEqual(service.get_state(job.job_id)["status"], "source_language_confirmation_required")
 
     def test_actual_asr_phonetics_are_evidence_not_silent_rewrites(self) -> None:
         alignments = [
