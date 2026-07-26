@@ -1,0 +1,19 @@
+protected_terms:
+  - Lamborghini Gallardo
+  - Stradman
+  - twin-turbo
+  - rear-wheel drive
+  - four-wheel drive
+  - horsepower
+  - hp
+brands:
+  - Lamborghini
+  - Ferrari
+  - Porsche
+  - BMW
+  - Audi
+drivetrain_terms:
+  - rear-wheel drive
+  - four-wheel drive
+  - all-wheel drive
+  - front-wheel drive

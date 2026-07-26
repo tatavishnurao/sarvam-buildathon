@@ -1,0 +1,12 @@
+{
+  "provenance": "manual",
+  "transcript": "Synthetic English back-translation only; replace with supplied Telugu transcript.",
+  "back_translation": "This Lamborghini Gallardo belongs to Stradman. It made 1000 hp before the twin-turbo upgrade. Now it makes 1300 hp, not 1000 hp. It is rear-wheel drive, not four-wheel drive. Subscribe if you want the final surprise.",
+  "segments": [
+    {"id": "target-1", "speaker": "Mat", "text": "This Lamborghini Gallardo belongs to Stradman."},
+    {"id": "target-2", "speaker": "Mat", "text": "It made 1000 hp before the twin-turbo upgrade."},
+    {"id": "target-3", "speaker": "Mat", "text": "Now it makes 1300 hp, not 1000 hp."},
+    {"id": "target-4", "speaker": "Mat", "text": "It is rear-wheel drive, not four-wheel drive."},
+    {"id": "target-5", "speaker": "Mat", "text": "Subscribe if you want the final surprise."}
+  ]
+}

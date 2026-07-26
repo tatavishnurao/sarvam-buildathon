@@ -1,0 +1,9 @@
+{
+  "segments": [
+    {"id": "source-1", "speaker": "Mat", "text": "This Lamborghini Gallardo belongs to Stradman."},
+    {"id": "source-2", "speaker": "Mat", "text": "It made 1000 hp before the twin-turbo upgrade."},
+    {"id": "source-3", "speaker": "Mat", "text": "Now it makes 1300 hp, not 1000 hp."},
+    {"id": "source-4", "speaker": "Mat", "text": "It is rear-wheel drive, not four-wheel drive."},
+    {"id": "source-5", "speaker": "Mat", "text": "Subscribe if you want the final surprise."}
+  ]
+}
