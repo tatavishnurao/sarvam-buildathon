@@ -139,3 +139,61 @@ class JobServiceTests(unittest.TestCase):
                 if "1000" in item["english_back_translation"]
             ]
             self.assertEqual(len(merged), 2)
+            unsupported = [
+                item
+                for item in report["findings"]
+                if item["category"] == "unsupported_addition"
+            ]
+            self.assertEqual(len(unsupported), 1)
+
+    def test_actual_asr_phonetics_are_evidence_not_silent_rewrites(self) -> None:
+        alignments = [
+            {
+                "alignment_id": "align-001",
+                "state": "aligned",
+                "source_segment_ids": ["source-001"],
+                "target_segment_ids": ["target-001"],
+                "source_text": "I built a Lamborghini Guardo.",
+                "target_text": "లాంబోర్కిని",
+                "english_back_translation": "I built a Lamborghini.",
+            },
+            {
+                "alignment_id": "align-002",
+                "state": "aligned",
+                "source_segment_ids": ["source-002"],
+                "target_segment_ids": ["target-002"],
+                "source_text": "Strict means",
+                "target_text": "నా ముక్కు మీద కొట్టు",
+                "english_back_translation": "Hit me on the nose.",
+            },
+            {
+                "alignment_id": "align-003",
+                "state": "aligned",
+                "source_segment_ids": ["source-003"],
+                "target_segment_ids": ["target-003"],
+                "source_text": "Month's we will drive.",
+                "target_text": "మాన్స్టర్ వీల్ డ్రైవ్",
+                "english_back_translation": "Monster Wheel Drive.",
+            },
+            {
+                "alignment_id": "align-004",
+                "state": "aligned",
+                "source_segment_ids": ["source-004"],
+                "target_segment_ids": ["target-003"],
+                "source_text": "His is four-wheel drive.",
+                "target_text": "ఫోర్ వీల్ డ్రైవ్",
+                "english_back_translation": "Monster Wheel Drive. His is Four Wheel Drive.",
+            },
+        ]
+        findings = JobService._findings(alignments)
+        evidence = " ".join(item["evidence"] for item in findings)
+        self.assertIn("Lamborghini Gallardo", evidence)
+        self.assertIn("Stradman", evidence)
+        self.assertIn("rear-wheel drive", evidence)
+        self.assertFalse(
+            any(
+                item["category"] == "automotive_term_drift"
+                and item["source_text"] == "His is four-wheel drive."
+                for item in findings
+            )
+        )

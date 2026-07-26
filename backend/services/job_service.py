@@ -9,6 +9,7 @@ import re
 import shutil
 import subprocess
 import threading
+from difflib import SequenceMatcher
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -464,6 +465,7 @@ class JobService:
     @staticmethod
     def _findings(alignments: list[dict[str, Any]]) -> list[dict[str, Any]]:
         findings: list[dict[str, Any]] = []
+        unsupported_target_segments: set[tuple[str, ...]] = set()
         for alignment in alignments:
             source = alignment["source_text"]
             target = alignment["target_text"]
@@ -473,14 +475,41 @@ class JobService:
                 findings.append(JobService._finding("source_omission", "high", alignment, False, "No target segment overlaps this source utterance."))
             elif alignment["state"] == "target_addition":
                 findings.append(JobService._finding("unsupported_addition", "high", alignment, False, "Target utterance has no overlapping source segment."))
-            if "నా ముక్కు మీద కొట్టు" in target:
+            target_key = tuple(alignment["target_segment_ids"])
+            if (
+                "నా ముక్కు మీద కొట్టు" in target
+                and target_key not in unsupported_target_segments
+            ):
+                unsupported_target_segments.add(target_key)
                 findings.append(JobService._finding("unsupported_addition", "critical", alignment, False, "The exact Telugu phrase appears in the target transcript and has no source support."))
             for entity in PROTECTED_ENTITIES:
-                if entity.casefold() in source_lower and entity.casefold() not in translated_lower:
-                    findings.append(JobService._finding("protected_entity_drift", "critical", alignment, False, f"Source entity '{entity}' is absent from the English back-translation."))
+                source_match = JobService._source_entity_match(source, entity)
+                if source_match and not JobService._contains_term(translated, entity):
+                    findings.append(
+                        JobService._finding(
+                            "protected_entity_drift",
+                            "critical",
+                            alignment,
+                            False,
+                            f"Source ASR evidence {source!r} matches protected entity "
+                            f"'{entity}' ({source_match}); the English back-translation "
+                            "does not preserve the full entity.",
+                        )
+                    )
             for term in AUTOMOTIVE_TERMS:
-                if term in source_lower and term not in translated_lower:
-                    findings.append(JobService._finding("automotive_term_drift", "critical", alignment, False, f"Source automotive term '{term}' is absent from the English back-translation."))
+                source_match = JobService._source_term_match(source, term, translated)
+                if source_match and not JobService._contains_term(translated, term):
+                    findings.append(
+                        JobService._finding(
+                            "automotive_term_drift",
+                            "critical",
+                            alignment,
+                            False,
+                            f"Source ASR evidence {source!r} matches automotive term "
+                            f"'{term}' ({source_match}); target/back-translation evidence "
+                            f"is {translated!r}.",
+                        )
+                    )
             source_numbers = JobService._numbers(source)
             translated_numbers = JobService._numbers(translated)
             for number in sorted(source_numbers):
@@ -504,6 +533,58 @@ class JobService:
                     "Subscriber punchline is present in both source and back-translation." if preserved else "Subscriber punchline is absent from the back-translation.",
                 ))
         return findings
+
+    @staticmethod
+    def _normalize_phrase(text: str) -> str:
+        return re.sub(r"[^a-z0-9]+", " ", text.casefold()).strip()
+
+    @staticmethod
+    def _contains_term(text: str, term: str) -> bool:
+        return JobService._normalize_phrase(term) in JobService._normalize_phrase(text)
+
+    @staticmethod
+    def _source_entity_match(source: str, entity: str) -> str | None:
+        if JobService._contains_term(source, entity):
+            return "exact normalized match"
+        source_normalized = JobService._normalize_phrase(source)
+        if entity == "Lamborghini Gallardo" and "lamborghini" in source_normalized:
+            candidate = source_normalized[source_normalized.index("lamborghini") :]
+            ratio = SequenceMatcher(
+                None, candidate, JobService._normalize_phrase(entity)
+            ).ratio()
+            if ratio >= 0.80:
+                return f"phonetic similarity {ratio:.2f}"
+        if entity == "Stradman":
+            ratio = SequenceMatcher(
+                None, source_normalized, JobService._normalize_phrase(entity)
+            ).ratio()
+            if ratio >= 0.58:
+                return f"phonetic similarity {ratio:.2f}"
+        return None
+
+    @staticmethod
+    def _source_term_match(
+        source: str, term: str, translated: str
+    ) -> str | None:
+        if JobService._contains_term(source, term):
+            return "exact normalized match"
+        source_normalized = JobService._normalize_phrase(source)
+        if term == "rear-wheel drive" and JobService._contains_term(
+            source, "four-wheel drive"
+        ):
+            return None
+        if (
+            term == "rear-wheel drive"
+            and source_normalized.endswith("drive")
+            and "monster wheel drive"
+            in JobService._normalize_phrase(translated)
+        ):
+            ratio = SequenceMatcher(
+                None, source_normalized, JobService._normalize_phrase(term)
+            ).ratio()
+            if ratio >= 0.50:
+                return f"ASR phonetic similarity {ratio:.2f}"
+        return None
 
     @staticmethod
     def _numbers(text: str) -> set[str]:

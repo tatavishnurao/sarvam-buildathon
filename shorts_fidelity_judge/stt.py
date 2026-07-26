@@ -63,6 +63,7 @@ class SarvamSTTAdapter:
             ).encode("utf-8")
         ).hexdigest()
         cache_path = self.cache_dir / f"{cache_key}.json"
+        pending_path = self.cache_dir / f"{cache_key}.pending.json"
         if cache_path.exists():
             transcript = self._to_transcript(
                 json.loads(cache_path.read_text(encoding="utf-8"))
@@ -96,11 +97,35 @@ class SarvamSTTAdapter:
             if num_speakers is not None:
                 kwargs["num_speakers"] = num_speakers
 
-            job = client.speech_to_text_job.create_job(**kwargs)
-            LOG.info("Created Sarvam Batch STT job %s", job.job_id)
-            job.upload_files(file_paths=[str(audio_path)])
-            LOG.info("Uploaded %s for Sarvam Batch STT job %s", audio_path.name, job.job_id)
-            job.start()
+            if pending_path.is_file():
+                pending = json.loads(pending_path.read_text(encoding="utf-8"))
+                job = client.speech_to_text_job.get_job(pending["provider_job_id"])
+                LOG.info("Resuming Sarvam Batch STT job %s", job.job_id)
+            else:
+                job = client.speech_to_text_job.create_job(**kwargs)
+                pending_path.write_text(
+                    json.dumps(
+                        {
+                            "provider_job_id": job.job_id,
+                            "audio_sha256": digest,
+                            "language_code": language_code,
+                            "model": model,
+                            "mode": mode,
+                            "with_diarization": with_diarization,
+                            "num_speakers": num_speakers,
+                        },
+                        indent=2,
+                    ),
+                    encoding="utf-8",
+                )
+                LOG.info("Created Sarvam Batch STT job %s", job.job_id)
+                job.upload_files(file_paths=[str(audio_path)])
+                LOG.info(
+                    "Uploaded %s for Sarvam Batch STT job %s",
+                    audio_path.name,
+                    job.job_id,
+                )
+                job.start()
             final_status = self._wait_for_job(job)
 
             file_results = job.get_file_results()
@@ -108,7 +133,7 @@ class SarvamSTTAdapter:
             if failed:
                 raise SarvamSTTError(f"Sarvam batch STT file failed: {failed}")
 
-            job.download_outputs(output_dir=str(download_dir))
+            self._download_with_retry(job, download_dir)
             json_outputs = sorted(download_dir.rglob("*.json"))
             if not json_outputs:
                 raise SarvamSTTError("Sarvam batch STT completed but returned no JSON output")
@@ -133,6 +158,7 @@ class SarvamSTTAdapter:
             cache_path.write_text(
                 json.dumps(envelope, indent=2, ensure_ascii=False), encoding="utf-8"
             )
+            pending_path.unlink(missing_ok=True)
             return self._to_transcript(envelope)
         except SarvamSTTError:
             raise
@@ -167,6 +193,30 @@ class SarvamSTTAdapter:
                 )
             time.sleep(delay)
             delay = min(delay * 2, 30)
+
+    @staticmethod
+    def _download_with_retry(
+        job: Any, download_dir: Path, attempts: int = 3
+    ) -> None:
+        last_error: Exception | None = None
+        for attempt in range(attempts):
+            try:
+                job.download_outputs(output_dir=str(download_dir))
+                return
+            except Exception as exc:
+                last_error = exc
+                if attempt + 1 < attempts:
+                    delay = 2**attempt
+                    LOG.warning(
+                        "Sarvam job %s result download failed; retrying in %ss",
+                        job.job_id,
+                        delay,
+                    )
+                    time.sleep(delay)
+        raise SarvamSTTError(
+            f"Sarvam Batch STT result download failed after {attempts} attempts "
+            f"for job {job.job_id}: {type(last_error).__name__}"
+        ) from last_error
 
     @staticmethod
     def _to_transcript(raw: dict[str, Any]) -> TargetTranscript:
