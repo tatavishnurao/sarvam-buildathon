@@ -137,7 +137,12 @@ class SarvamSTTAdapter:
         except SarvamSTTError:
             raise
         except Exception as exc:  # SDK exceptions are not stable across versions.
-            raise SarvamSTTError(f"Sarvam batch STT failed: {exc}") from exc
+            message = str(exc)
+            if key:
+                message = message.replace(key, "[REDACTED]")
+            raise SarvamSTTError(
+                f"Sarvam batch STT failed ({type(exc).__name__}): {message[:500]}"
+            ) from exc
         finally:
             shutil.rmtree(download_dir, ignore_errors=True)
 

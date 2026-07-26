@@ -171,12 +171,13 @@ class JobService:
         try:
             self._run_job(job_id)
         except Exception as exc:
-            LOG.exception("Job %s failed", job_id)
+            redacted = self._redacted_error(exc)
+            LOG.error("Job %s failed: %s", job_id, redacted)
             state = self.get_state(job_id)
             state.update(
                 status="failed",
                 message="Review failed",
-                error=self._redacted_error(exc),
+                error=redacted,
             )
             self._store_state(state)
         finally:

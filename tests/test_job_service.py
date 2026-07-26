@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import shutil
+import os
 import tempfile
 import unittest
 import wave
@@ -83,6 +83,14 @@ def _write_silence(path: Path) -> None:
 
 
 class JobServiceTests(unittest.TestCase):
+    def test_job_errors_redact_configured_api_key(self) -> None:
+        with patch.dict(os.environ, {"SARVAM_API_KEY": "secret-value"}):
+            message = JobService._redacted_error(
+                RuntimeError("request failed for secret-value")
+            )
+        self.assertNotIn("secret-value", message)
+        self.assertIn("[REDACTED]", message)
+
     def test_number_words_are_normalized(self) -> None:
         self.assertEqual(JobService._numbers("a thousand horsepower"), {"1000"})
         self.assertEqual(JobService._numbers("thirteen hundred hp"), {"1300"})
