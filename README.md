@@ -33,8 +33,9 @@ Requirements:
 - Sarvam API key from `platform.sarvam.ai`
 
 ```sh
-python3 -m venv .venv
-source .venv/bin/activate
+python3 -m venv sarvamgg
+source sarvamgg/bin/activate
+python -m pip install --upgrade pip
 pip install -e .
 export SARVAM_API_KEY="YOUR_KEY"
 ```
