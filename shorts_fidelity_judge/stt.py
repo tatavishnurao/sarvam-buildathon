@@ -64,7 +64,15 @@ class SarvamSTTAdapter:
         ).hexdigest()
         cache_path = self.cache_dir / f"{cache_key}.json"
         if cache_path.exists():
-            return self._to_transcript(json.loads(cache_path.read_text(encoding="utf-8")))
+            transcript = self._to_transcript(
+                json.loads(cache_path.read_text(encoding="utf-8"))
+            )
+            if not transcript.transcript.strip():
+                raise SarvamSTTError(
+                    f"Cached Sarvam STT response is invalid: {cache_path.name}"
+                )
+            LOG.info("Using cached Sarvam STT response %s", cache_path.name)
+            return transcript
 
         load_repository_env(self.env_path)
         key = os.getenv("SARVAM_API_KEY")

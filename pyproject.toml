@@ -8,14 +8,18 @@ dependencies = [
   "PyYAML>=6.0",
   "requests>=2.28",
   "python-dotenv>=1.0",
-  "sarvamai"
+  "sarvamai",
+  "fastapi>=0.115",
+  "uvicorn>=0.30",
+  "python-multipart>=0.0.9"
 ]
 
 [project.scripts]
 shorts-fidelity-judge = "shorts_fidelity_judge.cli:main"
 shorts-fidelity-judge-review = "shorts_fidelity_judge.review_ui:main"
 dubpatch-ingest = "shorts_fidelity_judge.ingest:main"
+dubpatch-api = "backend.app:main"
 
 [tool.setuptools.packages.find]
-include = ["shorts_fidelity_judge*"]
+include = ["shorts_fidelity_judge*", "backend*"]
 exclude = ["frontend*", "output*", "tests*", "sarvamgg*"]
